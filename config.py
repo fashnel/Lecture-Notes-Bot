@@ -17,7 +17,18 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # DeepSeek API
+    # Groq API (Transcription)
+    groq_api_key: str = Field(..., description="API ключ для Groq")
+    groq_transcription_url: str = Field(
+        default="https://api.groq.com/openai/v1/audio/transcriptions",
+        description="URL API Groq для транскрибации",
+    )
+    groq_model: str = Field(
+        default="whisper-large-v3-turbo",
+        description="Модель Groq для транскрибации",
+    )
+
+    # DeepSeek API (Summarization)
     deepseek_api_key: str = Field(..., description="API ключ для DeepSeek")
     deepseek_api_url: str = Field(
         default="https://api.deepseek.com/v1/chat/completions",
@@ -42,32 +53,9 @@ class Settings(BaseSettings):
         description="Директория для временных файлов",
     )
 
-    # Whisper
-    whisper_model_size: str = Field(
-        default="tiny",
-        description="Размер модели Whisper",
-    )
-    whisper_device: str = Field(
-        default="cpu",
-        description="Устройство для Whisper (cpu/cuda)",
-    )
-    whisper_compute_type: str = Field(
-        default="int8",
-        description="Тип вычислений Whisper",
-    )
-    whisper_cpu_threads: int = Field(
-        default=2,
-        description="Количество потоков CPU для Whisper",
-    )
-
     # LLM Prompt
     llm_system_prompt: str = Field(
-        default=(
-            "Сделай структурированный конспект лекции по Алгоритмам и "
-            "Структурам Данных / Linux на русском языке в формате Markdown. "
-            "Используй заголовки, списки, выделения. Сохраняй ключевые "
-            "формулы, примеры кода и термины."
-        ),
+        default="Сделай подробный конспект лекции в Markdown",
         description="Системный промпт для LLM",
     )
 

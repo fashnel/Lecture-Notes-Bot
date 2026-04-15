@@ -2,28 +2,26 @@
 Pipeline обработки видеолекции в PDF-конспект.
 
 Этапы:
-1. Извлечение аудио из видео через FFmpeg
-2. Транскрибация через Faster-Whisper
+1. Извлечение и сжатие аудио через FFmpeg
+2. Транскрибация через Groq API (Whisper)
 3. Отправка текста в DeepSeek API для создания конспекта
-4. Генерация PDF из Markdown
+4. Генерация PDF через fpdf2
 """
 
 import logging
-import shutil
+import re
 import subprocess
 import time
 from pathlib import Path
 
 import httpx
-import markdown2
+from fpdf import FPDF
 from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential,
     retry_if_exception_type,
 )
-from faster_whisper import WhisperModel
-from weasyprint import HTML
 
 from config import Settings
 
@@ -35,45 +33,34 @@ class LecturePipeline:
 
     def __init__(self, config: Settings):
         self.config = config
-        self._whisper_model = None
-
-    def _load_whisper_model(self) -> WhisperModel:
-        """Загрузить модель Whisper (ленивая инициализация)."""
-        if self._whisper_model is None:
-            logger.info(
-                "Загрузка Whisper модели: %s (device=%s, compute_type=%s, threads=%d)",
-                self.config.whisper_model_size,
-                self.config.whisper_device,
-                self.config.whisper_compute_type,
-                self.config.whisper_cpu_threads,
-            )
-            self._whisper_model = WhisperModel(
-                self.config.whisper_model_size,
-                device=self.config.whisper_device,
-                compute_type=self.config.whisper_compute_type,
-                cpu_threads=self.config.whisper_cpu_threads,
-            )
-        return self._whisper_model
 
     def extract_audio(self, video_path: Path) -> Path:
         """
-        Извлечь аудио из видео в WAV (16kHz, mono) через FFmpeg.
-        После успешного извлечения исходное видео удаляется.
+        Извлечь аудио из видео в MP3 с сильным сжатием.
+        Параметры: моно, 16kHz, ускорение 1.5x, битрейт 24k.
         """
         start = time.time()
-        wav_path = self.config.temp_dir / f"{video_path.stem}.wav"
+        mp3_path = self.config.temp_dir / f"{video_path.stem}.mp3"
 
+        # Параметры из ТЗ:
+        # -vn: нет видео
+        # -ac 1: моно
+        # -ar 16000: 16kHz
+        # -filter:a "atempo=1.5": ускорение в 1.5 раза
+        # -b:a 24k: битрейт 24kbps
         cmd = [
             "ffmpeg",
             "-y",
             "-i", str(video_path),
+            "-vn",
             "-ac", "1",
             "-ar", "16000",
-            "-f", "wav",
-            str(wav_path),
+            "-filter:a", "atempo=1.5",
+            "-b:a", "24k",
+            str(mp3_path),
         ]
 
-        logger.info("Извлечение аудио: %s -> %s", video_path.name, wav_path.name)
+        logger.info("Извлечение и сжатие аудио: %s -> %s", video_path.name, mp3_path.name)
         try:
             subprocess.run(
                 cmd,
@@ -92,39 +79,52 @@ class LecturePipeline:
             video_path.name,
             time.time() - start,
         )
-        return wav_path
+        return mp3_path
 
-    def transcribe_audio(self, wav_path: Path) -> str:
-        """Транскрибировать аудио через Faster-Whisper."""
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=5, min=5, max=60),
+        retry=retry_if_exception_type((httpx.HTTPError, ConnectionError)),
+        reraise=True,
+    )
+    def transcribe_audio(self, mp3_path: Path) -> str:
+        """Транскрибировать аудио через Groq API."""
         start = time.time()
-        logger.info("Транскрибация аудио: %s", wav_path.name)
+        logger.info("Транскрибация аудио через Groq: %s", mp3_path.name)
 
-        model = self._load_whisper_model()
+        headers = {
+            "Authorization": f"Bearer {self.config.groq_api_key}",
+        }
+        
+        files = {
+            "file": (mp3_path.name, open(mp3_path, "rb"), "audio/mpeg"),
+        }
+        data = {
+            "model": self.config.groq_model,
+            "language": "ru",
+            "response_format": "json",
+        }
 
-        segments, info = model.transcribe(
-            str(wav_path),
-            language="ru",
-            beam_size=5,
-            vad_filter=True,
-        )
+        try:
+            with httpx.Client(timeout=300.0) as client:
+                response = client.post(
+                    self.config.groq_transcription_url,
+                    headers=headers,
+                    files=files,
+                    data=data,
+                )
+                response.raise_for_status()
+                result_json = response.json()
+        finally:
+            files["file"][1].close()
 
-        logger.info(
-            "Определённый язык: %s (вероятность: %.2f)",
-            info.language,
-            info.language_probability,
-        )
-
-        full_text = []
-        for segment in segments:
-            full_text.append(segment.text.strip())
-
-        result = " ".join(full_text)
+        transcript = result_json.get("text", "")
         logger.info(
             "Транскрибация завершена: %d символов (затрачено: %.1f сек)",
-            len(result),
+            len(transcript),
             time.time() - start,
         )
-        return result
+        return transcript
 
     @retry(
         stop=stop_after_attempt(3),
@@ -135,7 +135,6 @@ class LecturePipeline:
     def _call_llm_api(self, text: str) -> str:
         """
         Отправить текст в DeepSeek API и получить Markdown-конспект.
-        Использует tenacity для retry при ошибках сети.
         """
         headers = {
             "Authorization": f"Bearer {self.config.deepseek_api_key}",
@@ -170,9 +169,8 @@ class LecturePipeline:
         start = time.time()
         logger.info("Генерация конспекта через LLM...")
 
-        # Если текст слишком длинный, обрезаем до лимита контекста
-        # DeepSeek обычно поддерживает ~8K-32K tokens
-        max_chars = 25000
+        # Ограничение контекста
+        max_chars = 30000
         if len(transcript) > max_chars:
             logger.warning(
                 "Транскрипт слишком длинный (%d символов), обрезка до %d",
@@ -189,94 +187,27 @@ class LecturePipeline:
         return markdown
 
     def generate_pdf(self, markdown: str, output_path: Path) -> Path:
-        """Сконвертировать Markdown в PDF через markdown2 + WeasyPrint."""
+        """Сгенерировать PDF через fpdf2, очистив Markdown от символов."""
         start = time.time()
         logger.info("Генерация PDF: %s", output_path.name)
 
-        # Конвертация Markdown -> HTML
-        html_content = markdown2.markdown(
-            markdown,
-            extras=[
-                "tables",
-                "code-friendly",
-                "fenced-code-blocks",
-                "header-ids",
-                "toc",
-            ],
-        )
+        # Очистка текста от символов #, *, _
+        clean_text = re.sub(r'[#*_]', '', markdown)
 
-        # Полный HTML с базовыми стилями
-        full_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                @page {{
-                    size: A4;
-                    margin: 2cm;
-                }}
-                body {{
-                    font-family: 'DejaVu Sans', Arial, sans-serif;
-                    font-size: 12pt;
-                    line-height: 1.6;
-                    color: #333;
-                }}
-                h1 {{ font-size: 20pt; color: #1a1a1a; border-bottom: 2px solid #333; padding-bottom: 4px; }}
-                h2 {{ font-size: 16pt; color: #2a2a2a; border-bottom: 1px solid #999; padding-bottom: 3px; }}
-                h3 {{ font-size: 14pt; color: #3a3a3a; }}
-                code {{
-                    background-color: #f4f4f4;
-                    padding: 2px 6px;
-                    border-radius: 3px;
-                    font-family: 'DejaVu Sans Mono', monospace;
-                    font-size: 10pt;
-                }}
-                pre {{
-                    background-color: #f4f4f4;
-                    padding: 12px;
-                    border-radius: 5px;
-                    overflow-x: auto;
-                }}
-                pre code {{
-                    background-color: transparent;
-                    padding: 0;
-                }}
-                table {{
-                    border-collapse: collapse;
-                    width: 100%;
-                    margin: 12px 0;
-                }}
-                th, td {{
-                    border: 1px solid #ccc;
-                    padding: 8px;
-                    text-align: left;
-                }}
-                th {{
-                    background-color: #f0f0f0;
-                    font-weight: bold;
-                }}
-                blockquote {{
-                    border-left: 4px solid #ccc;
-                    margin: 12px 0;
-                    padding-left: 16px;
-                    color: #555;
-                }}
-                ul, ol {{
-                    padding-left: 24px;
-                }}
-                li {{
-                    margin: 4px 0;
-                }}
-            </style>
-        </head>
-        <body>
-            {html_content}
-        </body>
-        </html>
-        """
+        pdf = FPDF()
+        pdf.add_page()
+        
+        font_path = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+        if Path(font_path).exists():
+            pdf.add_font("LiberationSans", "", font_path)
+            pdf.set_font("LiberationSans", size=12)
+        else:
+            pdf.set_font("Arial", size=12) # Fallback
+            
+        for line in clean_text.split('\n'):
+            pdf.multi_cell(0, 10, txt=line)
 
-        HTML(string=full_html).write_pdf(str(output_path))
+        pdf.output(str(output_path))
 
         logger.info(
             "PDF создан: %s (%.1f сек, %.1f KB)",
@@ -289,7 +220,7 @@ class LecturePipeline:
     def cleanup(self, *paths: Path) -> None:
         """Удалить временные файлы."""
         for path in paths:
-            if path.exists():
+            if path and path.exists():
                 try:
                     path.unlink()
                     logger.info("Временный файл удалён: %s", path.name)
@@ -299,42 +230,40 @@ class LecturePipeline:
     def process(self, video_path: Path) -> Path:
         """
         Полный пайплайн: видео -> аудио -> транскрипт -> конспект -> PDF.
-        Возвращает путь к готовому PDF.
         """
         total_start = time.time()
         logger.info("=" * 60)
         logger.info("Начало обработки: %s", video_path.name)
         logger.info("=" * 60)
 
-        wav_path = None
+        mp3_path = None
         txt_path = None
 
         try:
-            # Шаг 1: Извлечение аудио
-            wav_path = self.extract_audio(video_path)
+            # Шаг 1: Извлечение и сжатие аудио
+            mp3_path = self.extract_audio(video_path)
 
-            # Шаг 2: Транскрибация
-            transcript = self.transcribe_audio(wav_path)
+            # Шаг 2: Транскрибация через Groq
+            transcript = self.transcribe_audio(mp3_path)
 
             # Сохранить транскрипт как txt (для отладки)
             txt_path = self.config.temp_dir / f"{video_path.stem}.txt"
             txt_path.write_text(transcript, encoding="utf-8")
 
-            # Шаг 3: Генерация конспекта через LLM
+            # Шаг 3: Генерация конспекта через DeepSeek
             markdown = self.generate_summary(transcript)
 
-            # Шаг 4: Генерация PDF
+            # Шаг 4: Генерация PDF через fpdf2
             pdf_path = self.config.output_dir / f"{video_path.stem}.pdf"
             self.generate_pdf(markdown, pdf_path)
 
             total_time = time.time() - total_start
             logger.info("=" * 60)
             logger.info(
-                "Обработка завершена: %s -> %s (всего: %.1f сек / %.1f мин)",
+                "Обработка завершена: %s -> %s (всего: %.1f сек)",
                 video_path.name,
                 pdf_path.name,
                 total_time,
-                total_time / 60,
             )
             logger.info("=" * 60)
 
@@ -342,4 +271,4 @@ class LecturePipeline:
 
         finally:
             # Очистка временных файлов
-            self.cleanup(wav_path, txt_path)
+            self.cleanup(mp3_path, txt_path)
