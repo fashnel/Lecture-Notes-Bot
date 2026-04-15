@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  lecture-worker:
+    build: .
+    container_name: lecture-notes-bot
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    # Ограничение ресурсов для слабых серверов
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: "1.5"
