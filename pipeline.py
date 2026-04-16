@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from fpdf import FPDF
+import pdfkit
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -61,8 +61,8 @@ class LecturePipeline:
             "-vn",
             "-ac", "1",
             "-ar", "16000",
-            "-filter:a", "atempo=1.5",
-            "-b:a", "24k",
+            "-filter:a", "atempo=1.25",
+            "-b:a", "64k",
             str(mp3_path),
         ]
 
@@ -203,39 +203,32 @@ class LecturePipeline:
         )
         return markdown
 
-    def generate_pdf(self, markdown: str, output_path: Path) -> Path:
-        """Сгенерировать PDF через fpdf2, очистив Markdown от символов."""
-        start = time.time()
-        logger.info("Генерация PDF: %s", output_path.name)
-        logger.debug("DEBUG: Подготовка текста для PDF (очистка Markdown)")
-
-        # Очистка текста от символов #, *, _
-        clean_text = re.sub(r'[#*_]', '', markdown)
-
-        pdf = FPDF()
-        pdf.add_page()
+    def generate_pdf(self, html_content: str, output_path: Path) -> Path:
+        """Генерация PDF напрямую из HTML, возвращающая путь к файлу."""
         
-        font_path = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
-        if Path(font_path).exists():
-            pdf.add_font("LiberationSans", "", font_path)
-            pdf.set_font("LiberationSans", size=12)
-            logger.debug("DEBUG: Используется шрифт LiberationSans")
-        else:
-            pdf.set_font("Arial", size=12) # Fallback
-            logger.debug("DEBUG: Шрифт LiberationSans не найден, используется Arial")
+        start_time = time.time()
+        logger.info("Генерация PDF (pdfkit): %s", output_path.name)
+        
+        options = {
+            'encoding': "UTF-8",
+            'quiet': '',
+            'margin-top': '20mm',
+            'margin-right': '20mm',
+            'margin-bottom': '20mm',
+            'margin-left': '20mm',
+        }
+        
+        try:
+            pdfkit.from_string(html_content, str(output_path), options=options)
+            duration = time.time() - start_time
+            logger.info("PDF успешно создан за %.2f сек: %s", duration, output_path.name)
             
-        for line in clean_text.split('\n'):
-            pdf.multi_cell(0, 10, txt=line)
-
-        pdf.output(str(output_path))
-
-        logger.info(
-            "PDF создан: %s (%.1f сек, %.1f KB)",
-            output_path.name,
-            time.time() - start,
-            output_path.stat().st_size / 1024,
-        )
-        return output_path
+            # ОБЯЗАТЕЛЬНО возвращаем путь, как было в старой версии
+            return output_path 
+            
+        except Exception as e:
+            logger.error("Ошибка рендеринга PDF: %s (тип: %s)", str(e), type(e).__name__)
+            raise  # Пробрасываем ошибку выше, чтобы воркер зафиксировал этап 4 как упавший
 
     def cleanup(self, *paths: Path) -> None:
         """Удалить временные файлы."""
