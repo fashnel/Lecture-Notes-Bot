@@ -5,7 +5,7 @@ Pipeline обработки видеолекции в PDF-конспект.
 1. Извлечение и сжатие аудио через FFmpeg
 2. Транскрибация через API (например, Groq Whisper)
 3. Отправка текста в LLM API для создания конспекта
-4. Генерация PDF через fpdf2
+4. Генерация PDF через weasyprint
 """
 
 import logging
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-import pdfkit
+from weasyprint import HTML
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -204,31 +204,21 @@ class LecturePipeline:
         return markdown
 
     def generate_pdf(self, html_content: str, output_path: Path) -> Path:
-        """Генерация PDF напрямую из HTML, возвращающая путь к файлу."""
+        """Генерация PDF через WeasyPrint."""
         
         start_time = time.time()
-        logger.info("Генерация PDF (pdfkit): %s", output_path.name)
-        
-        options = {
-            'encoding': "UTF-8",
-            'quiet': '',
-            'margin-top': '20mm',
-            'margin-right': '20mm',
-            'margin-bottom': '20mm',
-            'margin-left': '20mm',
-        }
+        logger.info("Генерация PDF (WeasyPrint): %s", output_path.name)
         
         try:
-            pdfkit.from_string(html_content, str(output_path), options=options)
-            duration = time.time() - start_time
-            logger.info("PDF успешно создан за %.2f сек: %s", duration, output_path.name)
+            # Рендерим HTML напрямую в файл
+            HTML(string=html_content).write_pdf(str(output_path))
             
-            # ОБЯЗАТЕЛЬНО возвращаем путь, как было в старой версии
-            return output_path 
+            logger.info("PDF создан за %.2f сек: %s", time.time() - start_time, output_path.name)
+            return output_path
             
         except Exception as e:
-            logger.error("Ошибка рендеринга PDF: %s (тип: %s)", str(e), type(e).__name__)
-            raise  # Пробрасываем ошибку выше, чтобы воркер зафиксировал этап 4 как упавший
+            logger.error("Ошибка WeasyPrint: %s", str(e))
+            raise
 
     def cleanup(self, *paths: Path) -> None:
         """Удалить временные файлы."""

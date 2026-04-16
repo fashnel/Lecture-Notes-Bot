@@ -1,23 +1,25 @@
-FROM python:3.11-slim
+# Фиксируем стабильную версию, чтобы не улетать в trixie
+FROM python:3.11-slim-bookworm
 
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-
+# Устанавливаем системные либы для WeasyPrint и ffmpeg
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    libcairo2 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    # В bookworm пакет называется так:
+    libgdk-pixbuf-2.0-0 \
+    libffi-dev \
+    shared-mime-info \
     fonts-liberation \
-    xfonts-75dpi \
-    wget \
-    ca-certificates \
-    && wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/wkhtmltopdf_0.12.6.1-2.bullseye_amd64.deb \
-    && apt-get install -y ./wkhtmltopdf_0.12.6.1-2.bullseye_amd64.deb \
-    && rm wkhtmltopdf_0.12.6.1-2.bullseye_amd64.deb \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Копируем и ставим зависимости
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
 COPY . .
 
 CMD ["python", "main.py"]
