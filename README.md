@@ -1,105 +1,72 @@
 # Lecture Notes Bot
 
-Python-воркер для автоматической обработки видеолекций (.webm) в PDF-конспекты.
+Python-воркер для автоматической конвертации видеолекций (`.webm`) в структурированные PDF-конспекты. Проект ориентирован на минимальное потребление локальных ресурсов за счет использования внешних API (Groq/OpenAI-compatible) для тяжелых вычислений.
 
-## Архитектура
+---
 
-```
-.webm → FFmpeg → .wav → Faster-Whisper → Текст → DeepSeek API → Markdown → WeasyPrint → PDF
-```
+## 🏗 Архитектура и стек
+Процесс обработки разделен на 4 этапа:
 
-## Компоненты
+1. [cite_start]**FFmpeg**: Извлечение аудио из видео с оптимизацией (моно, 16kHz, ускорение 1.5x для сокращения лимитов API).
+2. [cite_start]**Transcription API**: Перевод аудио в текст (Whisper через Groq или аналоги).
+3. [cite_start]**LLM API**: Анализ текста лекции и создание структурированного конспекта в формате Markdown.
+4. [cite_start]**fpdf2**: Генерация финального PDF-файла с поддержкой кириллицы[cite: 1, 3].
 
-| Этап | Технология |
-|------|-----------|
-| Мониторинг папки | Watchdog |
-| Извлечение аудио | FFmpeg (16kHz, mono) |
-| Транскрибация | Faster-Whisper (tiny, int8) |
-| Генерация конспекта | DeepSeek API (OpenAI-compatible) |
-| Генерация PDF | markdown2 + WeasyPrint |
-| Retry логика | Tenacity |
-| Конфигурация | Pydantic Settings |
+---
 
-## Быстрый старт
+## ✨ Ключевые особенности
+* [cite_start]**Контрольные точки (Checkpointing)**: Если процесс прервется, воркер подхватит работу с последнего этапа (например, не будет заново транскрибировать, если `.txt` файл уже лежит в `temp`).
+* **Очередь обработки**: Файлы обрабатываются строго по одному, что исключает перегрузку канала или CPU.
+* [cite_start]**Отказоустойчивость**: Использование библиотеки `tenacity` для автоматических повторов при сбоях сетевых запросов[cite: 1, 3].
+* [cite_start]**Мониторинг**: Библиотека `watchdog` мгновенно ставит новые файлы из папки `incoming` в очередь на обработку[cite: 1].
+
+---
+
+## 🚀 Быстрый старт
 
 ### 1. Настройка окружения
-
+Создайте файл `.env` на основе примера и заполните ключи API:
 ```bash
 cp .env.example .env
-# Отредактируйте .env, указав ваш DeepSeek API ключ
-nano .env
 ```
 
 ### 2. Запуск через Docker Compose
+Самый простой способ запустить воркер со всеми зависимостями (FFmpeg, шрифты):
 
 ```bash
 docker compose up -d --build
 ```
 
+
+### 2. Запуск через Docker Compose
+Самый простой способ запустить воркер со всеми зависимостями (FFmpeg, шрифты):
+
+```bash
+docker compose up -d --build
+```
 ### 3. Использование
-
-Скопируйте `.webm` файл в папку `data/incoming/`:
-
-```bash
-cp lecture.webm ./data/incoming/
-```
-
-Воркер автоматически:
-1. Извлечёт аудио
-2. Транскрибирует речь
-3. Создаст конспект через LLM
-4. Сохранит PDF в `data/output/`
-
-### Локальный запуск (без Docker)
+Просто переместите ваш видеофайл в директорию входящих данных:
 
 ```bash
-# Системные зависимости (Ubuntu/Debian)
-sudo apt install ffmpeg libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0
-
-# Python зависимости
-pip install -r requirements.txt
-
-# Запуск
-python main.py
+cp my_lecture.webm ./data/incoming/
 ```
+Результат появится в ./data/output/my_lecture.pdf.
 
-## Структура проекта
+## 📁 Структура проекта
+* main.py — точка входа, логика очереди и мониторинг папок.
 
-```
-LectureNotesBot/
-├── main.py          # Точка входа, watchdog, очередь
-├── config.py        # Pydantic настройки
-├── pipeline.py      # Пайплайн обработки
-├── requirements.txt # Зависимости
-├── Dockerfile       # Образ контейнера
-├── docker-compose.yml
-├── .env.example     # Пример конфигурации
-└── README.md
-```
+* pipeline.py — ядро системы: обработка медиа, логика API и сборка PDF.
 
-## Переменные окружения
+* config.py — управление настройками через Pydantic (валидация путей и переменных).
 
-| Переменная | Описание | По умолчанию |
-|-----------|----------|-------------|
-| `DEEPSEEK_API_KEY` | API ключ DeepSeek | **Обязательно** |
-| `DEEPSEEK_API_URL` | URL API | `https://api.deepseek.com/v1/chat/completions` |
-| `DEEPSEEK_MODEL` | Модель | `deepseek-chat` |
-| `INCOMING_DIR` | Папка входящих | `/data/incoming` |
-| `OUTPUT_DIR` | Папка результатов | `/data/output` |
-| `TEMP_DIR` | Временная папка | `/data/temp` |
-| `WHISPER_MODEL_SIZE` | Модель Whisper | `tiny` |
-| `WHISPER_DEVICE` | Устройство | `cpu` |
-| `WHISPER_COMPUTE_TYPE` | Тип вычислений | `int8` |
-| `WHISPER_CPU_THREADS` | Потоки CPU | `2` |
+* Dockerfile — сборка легковесного образа на базе python:3.11-slim.
 
-## Оптимизация для слабых серверов
+## 💻 Технические требования (Docker)
+* CPU: ~1.5 лимит (для работы FFmpeg).
 
-- Модель Whisper `tiny` с квантованием `int8`
-- Ограничение CPU threads = 2
-- Обработка по одному файлу (очередь)
-- Автоматическая очистка временных файлов
-- Docker resource limits (1.5G RAM, 1.5 CPU)
+* RAM: ~1.0 ГБ.
 
-## Лицензия
+* Шрифты: В контейнер предустановлены fonts-liberation для корректного отображения русского языка в PDF.
 
-MIT
+## 📄 Лицензия
+    MIT

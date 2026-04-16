@@ -3,9 +3,13 @@
 Все настройки считываются из переменных окружения.
 """
 
+import logging
 from pathlib import Path
+from typing import Any
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger("worker")
 
 
 class Settings(BaseSettings):
@@ -17,27 +21,15 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # Groq API (Transcription)
-    groq_api_key: str = Field(..., description="API ключ для Groq")
-    groq_transcription_url: str = Field(
-        default="https://api.groq.com/openai/v1/audio/transcriptions",
-        description="URL API Groq для транскрибации",
-    )
-    groq_model: str = Field(
-        default="whisper-large-v3-turbo",
-        description="Модель Groq для транскрибации",
-    )
+    # Transcription API (Whisper/Groq/etc)
+    transcription_api_key: str = Field(..., description="API ключ для транскрибации")
+    transcription_api_url: str = Field(..., description="URL API для транскрибации")
+    transcription_model: str = Field(..., description="Модель для транскрибации")
 
-    # DeepSeek API (Summarization)
-    deepseek_api_key: str = Field(..., description="API ключ для DeepSeek")
-    deepseek_api_url: str = Field(
-        default="https://api.deepseek.com/v1/chat/completions",
-        description="URL API DeepSeek",
-    )
-    deepseek_model: str = Field(
-        default="deepseek-chat",
-        description="Модель DeepSeek для запросов",
-    )
+    # LLM API (Summarization)
+    llm_api_key: str = Field(..., description="API ключ для LLM")
+    llm_api_url: str = Field(..., description="URL API для LLM")
+    llm_model: str = Field(..., description="Модель LLM для запросов")
 
     # Пути
     incoming_dir: Path = Field(
@@ -78,3 +70,15 @@ class Settings(BaseSettings):
         """Создать директории, если они не существуют."""
         for dir_path in [self.incoming_dir, self.output_dir, self.temp_dir]:
             dir_path.mkdir(parents=True, exist_ok=True)
+
+    def log_config(self) -> None:
+        """Логировать текущую конфигурацию с маскированием ключей."""
+        logger.debug("Загруженная конфигурация:")
+        for field_name, value in self.model_dump().items():
+            if "api_key" in field_name.lower():
+                masked_value = "****"
+                if isinstance(value, str) and len(value) > 8:
+                    masked_value = f"{value[:4]}...{value[-4:]}"
+                logger.debug("  %s: %s", field_name.upper(), masked_value)
+            else:
+                logger.debug("  %s: %s", field_name.upper(), value)

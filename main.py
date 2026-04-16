@@ -21,7 +21,7 @@ from pipeline import LecturePipeline
 
 # Настройка логирования
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Уровень DEBUG для подробных логов
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     stream=sys.stdout,
@@ -104,8 +104,9 @@ def worker_loop(config: Settings, queue: Queue) -> None:
             )
         except Exception as e:
             logger.error(
-                "Ошибка при обработке %s: %s",
+                "Ошибка при обработке %s (тип: %s): %s",
                 video_path.name,
+                type(e).__name__,
                 e,
                 exc_info=True,
             )
@@ -121,9 +122,12 @@ def main() -> None:
     try:
         config = Settings()
     except Exception as e:
-        logger.error("Ошибка загрузки настроек: %s", e)
+        logger.error("Ошибка загрузки настроек (тип: %s): %s", type(e).__name__, e)
         logger.error("Убедитесь, что .env файл существует и заполнен корректно")
         sys.exit(1)
+
+    # Логирование конфига
+    config.log_config()
 
     # Создание директорий
     config.ensure_directories()
