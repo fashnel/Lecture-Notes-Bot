@@ -4,7 +4,7 @@ services:
     container_name: lecture-notes-bot
     env_file:
       - .env
-    envirounments:
+    environment:
       - http_proxy=${HTTP_PROXY}
       - https_proxy=${HTTPS_PROXY}
       - HTTP_PROXY=${HTTP_PROXY}
