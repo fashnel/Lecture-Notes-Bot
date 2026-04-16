@@ -1,6 +1,31 @@
 FROM python:3.11-slim
 
+<<<<<<< HEAD
+=======
+# Оставляем только ffmpeg и шрифты для PDF
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    wkhtmltopdf \
+    fonts-liberation \
+    xfonts-75dpi \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Установка зависимостей
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Копирование кода
+COPY . .
+
+# Создание директорий (важно для монтирования томов)
+RUN mkdir -p /data/incoming /data/output /data/temp
+
+>>>>>>> 806b0bf6028af9035da04d21e9195fdad955fc9b
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
