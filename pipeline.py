@@ -12,6 +12,7 @@ import logging
 import re
 import subprocess
 import time
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -88,6 +89,23 @@ class LecturePipeline:
             )
         return mp3_path
 
+    def _get_audio_duration(self, audio_path: Path) -> float:
+        """Получить длительность аудиофайла в секундах с помощью ffprobe."""
+        try:
+            cmd = [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(audio_path),
+            ]
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            return float(result.stdout.strip())
+        except (subprocess.CalledProcessError, ValueError) as e:
+            logger.error("DEBUG: Не удалось получить длительность аудио %s: %s", audio_path.name, str(e))
+            raise RuntimeError(f"Не удалось получить длительность аудио: {e}")
+
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=5, min=5, max=60),
@@ -95,9 +113,86 @@ class LecturePipeline:
         reraise=True,
     )
     def transcribe_audio(self, mp3_path: Path) -> str:
-        """Транскрибировать аудио через API транскрибации."""
+        """
+        Транскрибировать аудио через API транскрибации.
+        Если файл больше 18 МБ, разбить на фрагменты, отправлять по очереди с time.sleep(60)
+        после каждого успешного ответа.
+        """
         start = time.time()
         logger.info("Транскрибация аудио: %s", mp3_path.name)
+
+        # Проверка размера файла (18 МБ)
+        file_size_mb = mp3_path.stat().st_size / (1024 * 1024)
+        if file_size_mb <= 18:
+            logger.debug("DEBUG: Файл MP3 <= 18 МБ, транскрибируем целиком.")
+            return self._send_transcription_request(mp3_path)
+        else:
+            logger.info("DEBUG: Файл MP3 (%.2f МБ) > 18 МБ, разбиваем на фрагменты.", file_size_mb)
+            return self._transcribe_large_audio(mp3_path)
+
+    def _transcribe_large_audio(self, mp3_path: Path) -> str:
+        """
+        Разбивает большой MP3 файл на фрагменты, транскрибирует каждый и объединяет результаты.
+        """
+        total_transcript = []
+        temp_chunks = []
+        try:
+            duration = self._get_audio_duration(mp3_path)
+            # 15 минутные чанки, чтобы быть уверенными, что размер будет меньше 18 МБ
+            # 64kbps * 60s/min * 15min / 8 bits/byte = 7.2MB
+            chunk_duration_sec = 15 * 60
+            num_chunks = max(1, (int(duration / chunk_duration_sec) + (1 if duration % chunk_duration_sec > 0 else 0)))
+
+            logger.info("DEBUG: Аудио будет разбито на %d фрагментов по ~%.0f секунд.", num_chunks, chunk_duration_sec)
+
+            for i in range(num_chunks):
+                chunk_start_time = i * chunk_duration_sec
+                chunk_output_path = (
+                    self.config.temp_dir / f"{mp3_path.stem}_chunk_{i:03d}.mp3"
+                )
+                chunk_transcript_path = (
+                    self.config.temp_dir / f"{mp3_path.stem}_chunk_{i:03d}.txt"
+                )
+                temp_chunks.append(chunk_output_path)
+
+                if chunk_transcript_path.exists():
+                    logger.info("DEBUG: Транскрипция фрагмента %d уже существует, пропускаем: %s", i + 1, chunk_transcript_path.name)
+                    total_transcript.append(chunk_transcript_path.read_text(encoding="utf-8"))
+                    continue
+
+                logger.info("DEBUG: Извлечение фрагмента %d/%d: %s", i + 1, num_chunks, chunk_output_path.name)
+                cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-i", str(mp3_path),
+                    "-ss", str(chunk_start_time),
+                    "-t", str(chunk_duration_sec),
+                    "-c", "copy",
+                    str(chunk_output_path),
+                ]
+                subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+                logger.info("DEBUG: Транскрибирование фрагмента %d/%d: %s", i + 1, num_chunks, chunk_output_path.name)
+                chunk_transcript = self._send_transcription_request(chunk_output_path)
+                total_transcript.append(chunk_transcript)
+
+                # Сохраняем транскрипцию фрагмента (чекпоинтинг)
+                chunk_transcript_path.write_text(chunk_transcript, encoding="utf-8")
+                logger.debug("DEBUG: Транскрипция фрагмента %d сохранена в %s", i + 1, chunk_transcript_path.name)
+
+                # Задержка для обхода Rate Limit
+                if i < num_chunks - 1: # Не задерживаемся после последнего фрагмента
+                    logger.info("DEBUG: Ожидание 60 секунд для обхода Rate Limit...")
+                    time.sleep(60)
+
+            return "".join(total_transcript)
+        finally:
+            # Очистка временных аудио фрагментов
+            for chunk_path in temp_chunks:
+                self.cleanup(chunk_path)
+
+    def _send_transcription_request(self, mp3_path: Path) -> str:
+        """Отправляет запрос на транскрибацию одного аудиофайла."""
         logger.debug("DEBUG: Запрос к API транскрибации: %s", self.config.transcription_api_url)
 
         headers = {
@@ -130,11 +225,6 @@ class LecturePipeline:
             files["file"][1].close()
 
         transcript = result_json.get("text", "")
-        logger.info(
-            "Транскрибация завершена: %d символов (затрачено: %.1f сек)",
-            len(transcript),
-            time.time() - start,
-        )
         return transcript
 
     @retry(
@@ -182,26 +272,41 @@ class LecturePipeline:
         return markdown_text
 
     def generate_summary(self, transcript: str) -> str:
-        """Создать конспект через LLM."""
+        """Создать конспект через LLM, разбивая текст на чанки и обходя Rate Limit."""
         start = time.time()
         logger.info("Генерация конспекта через LLM...")
 
-        # Ограничение контекста
-        max_chars = 30000
-        if len(transcript) > max_chars:
-            logger.warning(
-                "Транскрипт слишком длинный (%d символов), обрезка до %d",
-                len(transcript),
-                max_chars,
-            )
-            transcript = transcript[:max_chars]
+        full_markdown_summary = []
+        # Разбиваем текст на чанки по 30 000 символов
+        # Используем max_chars из старой версии, но теперь это chunk_size
+        chunk_size = 30000
+        
+        num_chunks = (len(transcript) + chunk_size - 1) // chunk_size
 
-        markdown = self._call_llm_api(transcript)
+        if num_chunks > 1:
+            logger.info("DEBUG: Транскрипт будет разбит на %d фрагментов по %d символов.", num_chunks, chunk_size)
+
+        for i in range(num_chunks):
+            chunk_start = i * chunk_size
+            chunk_end = min((i + 1) * chunk_size, len(transcript))
+            text_chunk = transcript[chunk_start:chunk_end]
+            
+            logger.debug("DEBUG: Отправка текстового фрагмента %d/%d (символов: %d) в LLM.", i + 1, num_chunks, len(text_chunk))
+            markdown_chunk = self._call_llm_api(text_chunk)
+            full_markdown_summary.append(markdown_chunk)
+
+            # Задержка для обхода Rate Limit
+            if i < num_chunks - 1: # Не задерживаемся после последнего фрагмента
+                logger.info("DEBUG: Ожидание 60 секунд для обхода Rate Limit для LLM...")
+                time.sleep(60)
+
+        final_markdown = "\n\n".join(full_markdown_summary)
         logger.info(
-            "Конспект создан (затрачено: %.1f сек)",
+            "Конспект создан (затрачено: %.1f сек, символов: %d)",
             time.time() - start,
+            len(final_markdown),
         )
-        return markdown
+        return final_markdown
 
     def generate_pdf(self, html_content: str, output_path: Path) -> Path:
         """Генерация PDF через WeasyPrint."""
