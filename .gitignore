@@ -1,1 +1,9 @@
+shared-data/chunks/*
+shared-data/input/*
+shared-data/status/*
+shared-data/results/*
+ffmpeg-worker/__pycache__/
+api-worker/__pycache__/
+pdf-worker/__pycache__/
+.DS_Store
 .env

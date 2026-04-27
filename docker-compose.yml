@@ -1,19 +1,103 @@
 services:
-  lecture-worker:
-    build: .
-    container_name: lecture-notes-bot
+  api-worker:
+      build: ./api-worker
+      container_name: api-worker
+      env_file:
+        - .env
+      security_opt:
+        - no-new-privileges:true
+      cap_drop:
+        - ALL
+      tmpfs:
+        - /tmp
+      volumes:
+        - ./shared-data/results:/app/shared-data/results:rw
+        - ./shared-data/chunks:/app/shared-data/chunks:rw
+        - ./shared-data/status:/app/shared-data/status:rw
+        - ./prompts:/external-prompts:ro
+      restart: unless-stopped
+      deploy:
+        resources:
+          limits:
+            cpus: "0.6"
+            memory: 400M   
+          reservations:
+            cpus: "0.2"
+            memory: 200M
+
+  ffmpeg-worker:
+    build: ./ffmpeg-worker
+    container_name: ffmpeg-worker
     env_file:
       - .env
-    environment:
-      - http_proxy=${HTTP_PROXY}
-      - https_proxy=${HTTPS_PROXY}
-      - HTTP_PROXY=${HTTP_PROXY}
-      - HTTPS_PROXY=${HTTPS_PROXY}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
     volumes:
-      - ./data:/data
+      - ./shared-data/input:/app/shared-data/input:rw
+      - ./shared-data/chunks:/app/shared-data/chunks:rw
+      - ./shared-data/status:/app/shared-data/status:rw
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          memory: 1.0G
-          cpus: "1.5"
+          cpus: "0.8"
+          memory: 300M   
+        reservations:
+          cpus: "0.3"
+          memory: 150M
+
+  pdf-worker:
+      build: ./pdf-worker
+      container_name: pdf-worker
+      env_file:
+        - .env
+      security_opt:
+        - no-new-privileges:true
+      cap_drop:
+        - ALL
+      volumes:
+        - ./shared-data/results:/app/shared-data/results:rw
+        - ./shared-data/status:/app/shared-data/status:rw
+      restart: unless-stopped
+      deploy:
+        resources:
+          limits:
+            cpus: "0.3"
+            memory: 400M   
+          reservations:
+            cpus: "0.1"
+            memory: 200M
+
+  # tg-bot:
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "0.1"
+  #         memory: 100M
+  #       reservations:
+  #         cpus: "0.05"
+  #         memory: 50M
+
+  # postgres:
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "0.2"
+  #         memory: 300M
+  #       reservations:
+  #         cpus: "0.1"
+  #         memory: 200M
+
+  # redis:
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "0.1"
+  #         memory: 100M
+  #       reservations:
+  #         cpus: "0.05"
+  #         memory: 50M

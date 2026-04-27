@@ -1,0 +1,202 @@
+Ты — редактор учебных материалов.
+
+Тебе дан объединённый конспект лекции (из нескольких частей).
+
+Твоя задача:
+1. Упорядочить материал
+2. Убрать дублирование
+3. Сделать логичную структуру
+4. Сохранить ВСЮ важную информацию (особенно код, команды, примеры)
+
+=== ОБРАБОТКА ===
+
+- Объедини повторяющиеся части
+- Восстанови логический порядок (введение → объяснение → примеры → вывод)
+- Не теряй конкретику (команды, пути, код, параметры)
+- Не упрощай слишком сильно
+
+=== СТРУКТУРА ===
+
+- Сам выбери структуру (НЕ жесткий шаблон)
+- Разбей на секции с понятными заголовками
+- Добавь:
+  - определения (если есть)
+  - процессы (если есть)
+  - примеры
+
+=== ОСОБО ВАЖНО ===
+
+- Сохраняй команды Linux, код, конфиги БЕЗ изменений
+- Не превращай конкретику в абстракцию
+- Убирай только реальные дубли
+
+=== HTML ТРЕБОВАНИЯ ===
+
+<style>
+  @page { margin: 20mm 15mm; }
+  
+  body {
+    font-family: 'Liberation Sans', sans-serif;
+    line-height: 1.7;
+    color: #2d2d2d;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+
+  /* Навигация */
+  nav {
+    background: #f0f4ff;
+    border-left: 4px solid #4a6fa5;
+    padding: 15px 20px;
+    border-radius: 0 8px 8px 0;
+    margin-bottom: 35px;
+  }
+  nav .nav-title {
+    font-weight: bold;
+    color: #4a6fa5;
+    margin-bottom: 8px;
+    font-size: 0.9em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  nav a {
+    display: block;
+    color: #34495e;
+    text-decoration: none;
+    padding: 2px 0;
+    font-size: 0.95em;
+  }
+  nav a:hover { color: #e67e22; padding-left: 4px; }
+
+  /* Заголовки */
+  h1 {
+    color: #1a2a4a;
+    font-size: 1.8em;
+    border-bottom: 3px solid #4a6fa5;
+    padding-bottom: 10px;
+    margin-bottom: 8px;
+  }
+  h2 {
+    color: #2c3e50;
+    font-size: 1.25em;
+    border-left: 4px solid #e67e22;
+    padding-left: 12px;
+    margin-top: 32px;
+  }
+  h3 {
+    color: #34495e;
+    font-size: 1.05em;
+    text-decoration: underline;
+    text-decoration-color: #e67e22;
+    text-underline-offset: 4px;
+  }
+
+  /* Термины */
+  .term {
+    font-weight: bold;
+    color: #c0392b;
+    border-bottom: 1px dashed #c0392b;
+  }
+
+  /* Блок замечания */
+  .note {
+    background: #fff8e1;
+    border-left: 4px solid #f39c12;
+    padding: 10px 16px;
+    margin: 16px 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.95em;
+    color: #5a4000;
+  }
+  .note::before { content: "💡 "; }
+
+  /* Определения */
+  .definition {
+    background: #f0f4ff;
+    border-left: 4px solid #4a6fa5;
+    padding: 10px 16px;
+    margin: 16px 0;
+    border-radius: 0 6px 6px 0;
+    color: #1a2a4a;
+  }
+
+  /* Алгоритм */
+  ol.algorithm {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 14px 14px 14px 36px;
+    margin: 16px 0;
+  }
+  ol.algorithm li {
+    padding: 3px 0;
+    color: #2d2d2d;
+  }
+
+  /* Код */
+  pre {
+    background: #1e2030;
+    color: #c8d3f5;
+    padding: 16px;
+    border-radius: 8px;
+    font-size: 0.88em;
+    overflow-x: auto;
+    border-left: 3px solid #4a6fa5;
+    white-space: pre-wrap;
+  }
+  code {
+    background: #eef0f8;
+    color: #c0392b;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 0.9em;
+  }
+  pre code { background: none; color: inherit; padding: 0; }
+
+  /* Таблицы */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-size: 0.95em;
+  }
+  th {
+    background: #4a6fa5;
+    color: white;
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+  }
+  td {
+    padding: 9px 14px;
+    border-bottom: 1px solid #dee2e6;
+  }
+  tr:nth-child(even) td { background: #f8f9fa; }
+  tr:hover td { background: #f0f4ff; }
+
+  /* Метаданные в header */
+  header .meta {
+    color: #888;
+    font-size: 0.85em;
+    margin-top: 4px;
+  }
+
+  /* Главная мысль */
+  .summary-box {
+    background: #e8f5e9;
+    border: 1px solid #a5d6a7;
+    border-radius: 6px;
+    padding: 10px 16px;
+    margin-top: 20px;
+    font-style: italic;
+    color: #1b5e20;
+  }
+  .summary-box::before { content: "✓ Главная мысль: "; font-weight: bold; font-style: normal; }
+</style>
+
+- [CODE] → <pre><code>
+- важные замечания → <div class="note">
+- термины → <span class="term">
+
+Ответ строго с <!DOCTYPE html>
