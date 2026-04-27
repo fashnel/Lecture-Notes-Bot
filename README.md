@@ -137,8 +137,6 @@ docker compose logs -f
 
 **[📥 Скачать пример конспекта (PDF)](https://github.com/fashnel/Lecture-Notes-Bot/releases/download/untagged-08e8b418bdc30e8c3ec8/Linux_summary.pdf)**
 
-> _Лекция: Деревья поиска — обходы, поиск, вставка, удаление узлов._
-
 ---
 
 ## 🗺 Roadmap
