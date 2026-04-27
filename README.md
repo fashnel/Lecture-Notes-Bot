@@ -133,9 +133,9 @@ docker compose logs -f
 
 ## 📄 Пример результата
 
-Ниже — PDF-конспект, сгенерированный из записи лекции по алгоритмам и структурам данных.
+Ниже — PDF-конспект, сгенерированный из записи лекции по "Основам работы в ОС Linux".
 
-**[📥 Скачать пример конспекта (PDF)](docs/example_output.pdf)**
+**[📥 Скачать пример конспекта (PDF)]([docs/example_output.pdf](https://github.com/fashnel/Lecture-Notes-Bot/releases/download/untagged-08e8b418bdc30e8c3ec8/Linux_summary.pdf))**
 
 > _Лекция: Деревья поиска — обходы, поиск, вставка, удаление узлов._
 
