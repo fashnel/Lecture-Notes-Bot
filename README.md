@@ -135,16 +135,15 @@ docker compose logs -f
 
 Ниже — PDF-конспект, сгенерированный из записи лекции по "Основам работы в ОС Linux".
 
-**[📥 Скачать пример конспекта (PDF)](https://github.com/fashnel/Lecture-Notes-Bot/releases/download/untagged-08e8b418bdc30e8c3ec8/Linux_summary.pdf)**
+**[📥 Скачать пример конспекта (PDF)](https://github.com/fashnel/Lecture-Notes-Bot/releases/download/Lecture-Examples/Linux_summary.pdf)**
 
 ---
 
 ## 🗺 Roadmap
 
-- [ ] Обернуть серверное взаимодействие в удобное интерфейс с телеграм ботом
+- [ ] Обернуть cli взаимодействие в удобный интерфейс телеграм бота
 - [ ] Redis-очередь с AOF-персистентностью вместо файловых статусов
-- [ ] Поддержка `.mp4` и `.mp3` на входе
-- [ ] Веб-интерфейс для просмотра истории конспектов
+- [ ] Поддержка `youtube-ссылок`, `.mp4` и `.mp3` на входе
 
 ---
 
